@@ -16,6 +16,13 @@
     <PackageReference Include="AssetsTools.NET.Cpp2IL" Version="3.0.4" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="classdata.tpk" Condition="Exists('classdata.tpk')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
   <Target Name="DownloadClassDataTpk" BeforeTargets="Build" Condition="!Exists('classdata.tpk')">
     <Message Importance="high" Text="Downloading classdata.tpk..." />
     <Exec Command="curl -sL -o uabea-ubuntu.zip &quot;https://github.com/nesrak1/UABEA/releases/download/v8/uabea-ubuntu.zip&quot;" />
@@ -23,8 +30,8 @@
     <Exec Command="rm -f uabea-ubuntu.zip" />
   </Target>
 
-  <Target Name="CopyClassDataTpk" AfterTargets="Build" Condition="Exists('classdata.tpk')">
-    <Copy SourceFiles="classdata.tpk" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
+  <Target Name="CopyClassDataTpk" AfterTargets="Publish" Condition="Exists('classdata.tpk')">
+    <Copy SourceFiles="classdata.tpk" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

@@ -14,7 +14,7 @@ public static class Injector
 
     public static List<FileText> ParseJson(string json)
     {
-        return JsonSerializer.Deserialize<List<FileText>>(json, JsonOptions) ?? new List<FileText>();
+        return JsonSerializer.Deserialize<List<FileText>>(json, JsonOptions) ?? [];
     }
 
     public static List<FileText> LoadJson(string inputPath)
@@ -25,78 +25,161 @@ public static class Injector
 
     public static int InjectAll(string[] filePaths, List<FileText> files, AssetsManager manager)
     {
+        // Pre-group entries by target file name
+        // (fileName -> (PathId -> List<(fieldPath, content, fullKey)>))
+        var fileGrouped = new Dictionary<string, Dictionary<long, List<(string fieldPath, string content, string key)>>>(StringComparer.OrdinalIgnoreCase);
+        var wildcardMap = new Dictionary<long, List<(string fieldPath, string content, string key)>>();
+
+        foreach (var file in files)
+        {
+            foreach (var tf in file.TextFields)
+            {
+                if (string.IsNullOrEmpty(tf.Id)) continue;
+
+                string targetFile = "";
+                string idBody = tf.Id;
+
+                if (tf.Id.Contains('#'))
+                {
+                    var split = tf.Id.Split('#', 2);
+                    targetFile = split[0];
+                    idBody = split[1];
+                }
+
+                var parts = idBody.Split('_', 3);
+                if (parts.Length < 3) continue;
+                if (!long.TryParse(parts[1], out var pathId)) continue;
+
+                var fieldPath = parts[2];
+
+                if (!string.IsNullOrEmpty(targetFile))
+                {
+                    if (!fileGrouped.TryGetValue(targetFile, out var targetMap))
+                    {
+                        targetMap = [];
+                        fileGrouped[targetFile] = targetMap;
+                    }
+                    if (!targetMap.TryGetValue(pathId, out var list))
+                    {
+                        list = [];
+                        targetMap[pathId] = list;
+                    }
+                    list.Add((fieldPath, tf.Content, tf.Id));
+                }
+                else
+                {
+                    if (!wildcardMap.TryGetValue(pathId, out var list))
+                    {
+                        list = [];
+                        wildcardMap[pathId] = list;
+                    }
+                    list.Add((fieldPath, tf.Content, tf.Id));
+                }
+            }
+        }
+
         var total = 0;
         foreach (var path in filePaths)
         {
-            if (File.Exists(path))
+            if (!File.Exists(path)) continue;
+
+            var fileName = Path.GetFileName(path);
+            var map = new Dictionary<long, List<(string fieldPath, string content, string key)>>();
+
+            if (fileGrouped.TryGetValue(fileName, out var targetMap))
             {
-                total += Inject(path, files, manager);
+                foreach (var (pid, list) in targetMap)
+                {
+                    map[pid] = list;
+                }
+            }
+
+            // If no specific file mapping, combine with wildcard entries
+            if (map.Count == 0 && wildcardMap.Count > 0)
+            {
+                map = wildcardMap;
+            }
+
+            if (map.Count > 0)
+            {
+                total += Inject(path, map, manager);
             }
         }
         return total;
     }
 
-    public static int Inject(string filePath, List<FileText> files, AssetsManager manager)
+    public static int Inject(string filePath, Dictionary<long, List<(string fieldPath, string content, string key)>> pathIdMap, AssetsManager manager)
     {
         var afileInst = manager.LoadAssetsFile(filePath, true);
         var afile = afileInst.file;
         manager.LoadClassDatabaseFromPackage(afile.Metadata.UnityVersion);
 
-        // Map id -> content
-        var values = new Dictionary<string, string>();
-        foreach (var file in files)
+        var assetInfoMap = new Dictionary<long, AssetFileInfo>();
+        foreach (var info in afile.Metadata.AssetInfos)
         {
-            foreach (var tf in file.TextFields)
-            {
-                if (!string.IsNullOrEmpty(tf.Id))
-                {
-                    values[tf.Id] = tf.Content;
-                }
-            }
+            assetInfoMap[info.PathId] = info;
         }
 
         var modifiedCount = 0;
 
-        foreach (var (key, newContent) in values)
+        foreach (var (pathId, updates) in pathIdMap)
         {
-            var parts = key.Split('_', 3);
-            if (parts.Length < 3) continue;
-            if (!long.TryParse(parts[1], out var pathId)) continue;
+            if (!assetInfoMap.TryGetValue(pathId, out var info)) continue;
 
-            var fieldPath = parts[2];
-            var info = afile.Metadata.AssetInfos.FirstOrDefault(i => i.PathId == pathId);
-            if (info == null) continue;
+            AssetTypeValueField? baseField = null;
+            try
+            {
+                baseField = manager.GetBaseField(afileInst, info);
+            }
+            catch
+            {
+                continue;
+            }
 
-            var baseField = manager.GetBaseField(afileInst, info);
             if (baseField == null) continue;
 
-            var targetField = FindFieldByPath(baseField, fieldPath);
-            if (targetField == null || targetField.IsDummy) continue;
-
-            if (targetField.TemplateField != null && targetField.TemplateField.Type == "string")
+            var assetModified = false;
+            foreach (var (fieldPath, newContent, key) in updates)
             {
-                targetField.AsString = newContent;
+                try
+                {
+                    var targetField = FindFieldByPath(baseField, fieldPath);
+                    if (targetField == null || targetField.IsDummy) continue;
+
+                    if (targetField.TemplateField != null && targetField.TemplateField.Type == "string")
+                    {
+                        targetField.AsString = newContent;
+                        assetModified = true;
+                        modifiedCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Injector] Warning updating field {key}: {ex.Message}");
+                }
+            }
+
+            if (assetModified)
+            {
                 info.SetNewData(baseField);
-                modifiedCount++;
             }
         }
 
         if (modifiedCount > 0)
         {
-            var replacePath = Path.Combine(
-                Path.GetDirectoryName(filePath)!,
-                Path.GetFileNameWithoutExtension(filePath) + "_replace" + Path.GetExtension(filePath)
-            );
+            var tempPath = filePath + ".tmp";
 
-            File.Move(filePath, replacePath, overwrite: true);
-
-            using var writer = new AssetsFileWriter(filePath);
-            afile.Write(writer);
-
-            if (File.Exists(replacePath))
+            using (var writer = new AssetsFileWriter(tempPath))
             {
-                File.Delete(replacePath);
+                afile.Write(writer);
             }
+
+            manager.UnloadAssetsFile(afileInst);
+            File.Move(tempPath, filePath, overwrite: true);
+        }
+        else
+        {
+            manager.UnloadAssetsFile(afileInst);
         }
 
         return modifiedCount;

@@ -19,9 +19,10 @@ public static class Extractor
         {
             if (!File.Exists(filePath)) continue;
 
+            AssetsFileInstance? afileInst = null;
             try
             {
-                var afileInst = manager.LoadAssetsFile(filePath, true);
+                afileInst = manager.LoadAssetsFile(filePath, true);
                 var afile = afileInst.file;
                 manager.LoadClassDatabaseFromPackage(afile.Metadata.UnityVersion);
 
@@ -44,7 +45,7 @@ public static class Extractor
                             [
                                 new()
                                 {
-                                    Id = $"{info.TypeId}_{info.PathId}_m_Script",
+                                    Id = $"{source}#{info.TypeId}_{info.PathId}_m_Script",
                                     Field = "m_Script",
                                     Content = scriptField.AsString
                                 }
@@ -60,7 +61,7 @@ public static class Extractor
                     if (baseField == null) continue;
 
                     var fields = new List<TextField>();
-                    ExtractStrings(baseField, info, fields);
+                    ExtractStrings(baseField, info, fields, source);
 
                     if (fields.Count > 0)
                     {
@@ -90,7 +91,7 @@ public static class Extractor
                             [
                                 new()
                                 {
-                                    Id = $"{info.TypeId}_{info.PathId}_m_Name",
+                                    Id = $"{source}#{info.TypeId}_{info.PathId}_m_Name",
                                     Field = "m_Name",
                                     Content = nameField.AsString
                                 }
@@ -109,7 +110,7 @@ public static class Extractor
                         if (baseField == null) continue;
 
                         var fields = new List<TextField>();
-                        ExtractStrings(baseField, info, fields);
+                        ExtractStrings(baseField, info, fields, source);
 
                         if (fields.Count > 0)
                         {
@@ -126,6 +127,13 @@ public static class Extractor
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[Extractor] Error in {filePath}: {ex.Message}");
+            }
+            finally
+            {
+                if (afileInst != null)
+                {
+                    manager.UnloadAssetsFile(afileInst);
+                }
             }
         }
 
@@ -149,7 +157,7 @@ public static class Extractor
         File.WriteAllText(outputPath, json, Encoding.UTF8);
     }
 
-    private static void ExtractStrings(AssetTypeValueField field, AssetFileInfo info, List<TextField> fields, string? prefix = null)
+    private static void ExtractStrings(AssetTypeValueField field, AssetFileInfo info, List<TextField> fields, string source, string? prefix = null)
     {
         if (field == null || field.IsDummy) return;
 
@@ -158,7 +166,7 @@ public static class Extractor
             var fieldPath = prefix ?? "value";
             fields.Add(new()
             {
-                Id = $"{info.TypeId}_{info.PathId}_{fieldPath}",
+                Id = $"{source}#{info.TypeId}_{info.PathId}_{fieldPath}",
                 Field = fieldPath,
                 Content = field.AsString
             });
@@ -191,7 +199,7 @@ public static class Extractor
                     childPrefix = $"{prefix}.{child.FieldName}";
                 }
 
-                ExtractStrings(child, info, fields, childPrefix);
+                ExtractStrings(child, info, fields, source, childPrefix);
             }
         }
     }

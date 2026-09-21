@@ -139,6 +139,11 @@ static async Task HandleInject(string[] args, string classdataPath)
         }
         files = Injector.LoadJson(jsonFilePath);
     }
+    else if (Console.IsInputRedirected)
+    {
+        var json = await Console.In.ReadToEndAsync();
+        files = Injector.ParseJson(json);
+    }
     else if (targetPaths.Count >= 2)
     {
         var firstArg = targetPaths[0];
@@ -159,7 +164,7 @@ static async Task HandleInject(string[] args, string classdataPath)
     }
     else
     {
-        throw new ArgumentException("Usage: herai-unity inject [--json <file.json> | <json_string>] <gameDir/assetsFile>");
+        throw new ArgumentException("Usage: herai-unity inject [--json <file.json> | <json_string> | stdin] <gameDir/assetsFile>");
     }
 
     if (targetPaths.Count == 0)
@@ -186,14 +191,15 @@ static void PrintHelp()
     Console.Error.WriteLine();
     Console.Error.WriteLine("Usage:");
     Console.Error.WriteLine("  herai-unity extract <gameDir/assets...> [--json <output.json>]");
+    Console.Error.WriteLine("  herai-unity inject  <gameDir/assets...>               (reads JSON from stdin)");
     Console.Error.WriteLine("  herai-unity inject  <json_string> <gameDir/assets...>");
     Console.Error.WriteLine("  herai-unity inject  --json <input.json> <gameDir/assets...>");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Examples:");
     Console.Error.WriteLine("  herai-unity extract \"/path/to/game\" > text.json");
     Console.Error.WriteLine("  herai-unity extract \"/path/to/game\" --json text.json");
+    Console.Error.WriteLine("  cat text.json | herai-unity inject \"/path/to/game\"");
     Console.Error.WriteLine("  herai-unity inject  --json translated.json \"/path/to/game\"");
-    Console.Error.WriteLine("  herai-unity inject  \"[{\"name\":...}]\" \"/path/to/game\"");
 }
 
 static IEnumerable<string> ExpandPaths(IEnumerable<string> inputPaths)
