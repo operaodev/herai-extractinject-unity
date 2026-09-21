@@ -1,0 +1,45 @@
+## Build results
+[Bb]in/
+[Oo]bj/
+[Aa]rtifacts/
+[Pp]ublish/
+
+## Visual Studio & Rider / IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.userprefs
+*.suo
+*.sln.docstates
+*.userosscache
+
+## Package & Tool Caches
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+.nuget/
+packages/
+
+## Test & Coverage Results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+
+## Logs & Temp files
+*.log
+*.tmp
+*.temp
+uabea-ubuntu.zip
+
+## Local extraction / test dumps
+*.assets
+*.json
+!appsettings*.json
+
+## OS generated
+.DS_Store
+Thumbs.db
+desktop.ini
