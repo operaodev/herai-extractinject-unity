@@ -4,8 +4,8 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <RollForward>Major</RollForward>
-    <RootNamespace>herai_unity</RootNamespace>
-    <AssemblyName>herai-unity</AssemblyName>
+    <RootNamespace>herai_extractinject_unity</RootNamespace>
+    <AssemblyName>herai-extractinject-unity</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

@@ -120,6 +120,8 @@ public static class Injector
 
     public static int InjectAll(string[] filePaths, List<TextEntry> entries, AssetsManager manager)
     {
+        // Pre-group entries by target asset file name (the source used in ids)
+        // (assetFileName -> (PathId -> List<(fieldPath, content, fullKey)>))
         var fileGrouped = new Dictionary<string, Dictionary<long, List<(string fieldPath, string content, string key)>>>(StringComparer.OrdinalIgnoreCase);
         var wildcardMap = new Dictionary<long, List<(string fieldPath, string content, string key)>>();
 
@@ -173,35 +175,124 @@ public static class Injector
         {
             if (!File.Exists(path)) continue;
 
-            var fileName = Path.GetFileName(path);
-            var map = new Dictionary<long, List<(string fieldPath, string content, string key)>>();
-
-            if (fileGrouped.TryGetValue(fileName, out var targetMap))
+            try
             {
-                foreach (var (pid, list) in targetMap)
+                if (AssetsFile.IsAssetsFile(path))
                 {
-                    map[pid] = list;
+                    var map = BuildMap(fileGrouped, wildcardMap, Path.GetFileName(path));
+                    if (map.Count > 0)
+                    {
+                        total += InjectAssetsFile(path, map, manager);
+                    }
+                }
+                else if (Extractor.IsUnityFile(path))
+                {
+                    total += InjectBundle(path, fileGrouped, wildcardMap, manager);
+                }
+                else
+                {
+                    Console.Error.WriteLine($"[Injector] Skipping non-Unity file: {path}");
                 }
             }
-
-            if (map.Count == 0 && wildcardMap.Count > 0)
+            catch (Exception ex)
             {
-                map = wildcardMap;
-            }
-
-            if (map.Count > 0)
-            {
-                total += Inject(path, map, manager);
+                Console.Error.WriteLine($"[Injector] Error in {path}: {ex.Message}");
             }
         }
         return total;
     }
 
-    public static int Inject(string filePath, Dictionary<long, List<(string fieldPath, string content, string key)>> pathIdMap, AssetsManager manager)
+    private static Dictionary<long, List<(string fieldPath, string content, string key)>> BuildMap(
+        Dictionary<string, Dictionary<long, List<(string fieldPath, string content, string key)>>> grouped,
+        Dictionary<long, List<(string fieldPath, string content, string key)>> wildcard,
+        string assetFileName)
+    {
+        if (grouped.TryGetValue(assetFileName, out var targetMap))
+        {
+            return targetMap;
+        }
+        return wildcard.Count > 0 ? wildcard : [];
+    }
+
+    public static int InjectAssetsFile(string filePath, Dictionary<long, List<(string fieldPath, string content, string key)>> pathIdMap, AssetsManager manager)
     {
         var afileInst = manager.LoadAssetsFile(filePath, true);
         var afile = afileInst.file;
         manager.LoadClassDatabaseFromPackage(afile.Metadata.UnityVersion);
+
+        var modifiedCount = ApplyUpdates(afileInst, pathIdMap, manager);
+
+        if (modifiedCount > 0)
+        {
+            var tempPath = filePath + ".tmp";
+
+            using (var writer = new AssetsFileWriter(tempPath))
+            {
+                afile.Write(writer);
+            }
+
+            manager.UnloadAssetsFile(afileInst);
+            File.Move(tempPath, filePath, overwrite: true);
+        }
+        else
+        {
+            manager.UnloadAssetsFile(afileInst);
+        }
+
+        return modifiedCount;
+    }
+
+    private static int InjectBundle(
+        string filePath,
+        Dictionary<string, Dictionary<long, List<(string fieldPath, string content, string key)>>> fileGrouped,
+        Dictionary<long, List<(string fieldPath, string content, string key)>> wildcardMap,
+        AssetsManager manager)
+    {
+        var bunInst = manager.LoadBundleFile(filePath);
+        var bun = bunInst.file;
+        var modifiedCount = 0;
+
+        try
+        {
+            var names = bun.GetAllFileNames();
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (!bun.IsAssetsFile(i)) continue;
+
+                var afileInst = manager.LoadAssetsFileFromBundle(bunInst, i);
+                if (afileInst == null) continue;
+
+                var map = BuildMap(fileGrouped, wildcardMap, afileInst.name);
+                if (map.Count == 0) continue;
+
+                manager.LoadClassDatabaseFromPackage(afileInst.file.Metadata.UnityVersion);
+                modifiedCount += ApplyUpdates(afileInst, map, manager);
+            }
+
+            if (modifiedCount > 0)
+            {
+                var dirAtEnd = (bun.Header.FileStreamHeader.Flags & AssetBundleFSHeaderFlags.BlockAndDirAtEnd) != 0;
+                var tempPath = filePath + ".tmp";
+
+                using (var writer = new AssetsFileWriter(tempPath))
+                {
+                    bun.Pack(writer, bunInst.originalCompression, dirAtEnd);
+                }
+
+                File.Move(tempPath, filePath, overwrite: true);
+            }
+        }
+        finally
+        {
+            manager.UnloadBundleFile(bunInst);
+        }
+
+        return modifiedCount;
+    }
+
+    private static int ApplyUpdates(AssetsFileInstance afileInst, Dictionary<long, List<(string fieldPath, string content, string key)>> pathIdMap, AssetsManager manager)
+    {
+        var afile = afileInst.file;
 
         var assetInfoMap = new Dictionary<long, AssetFileInfo>();
         foreach (var info in afile.Metadata.AssetInfos)
@@ -252,23 +343,6 @@ public static class Injector
             {
                 info.SetNewData(baseField);
             }
-        }
-
-        if (modifiedCount > 0)
-        {
-            var tempPath = filePath + ".tmp";
-
-            using (var writer = new AssetsFileWriter(tempPath))
-            {
-                afile.Write(writer);
-            }
-
-            manager.UnloadAssetsFile(afileInst);
-            File.Move(tempPath, filePath, overwrite: true);
-        }
-        else
-        {
-            manager.UnloadAssetsFile(afileInst);
         }
 
         return modifiedCount;
