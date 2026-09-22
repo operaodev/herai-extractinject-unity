@@ -18,6 +18,29 @@ It scans Unity `TextAsset`, `MonoBehaviour`, `GameObject`, `Font`, `Localization
 
 ---
 
+## Download
+
+Pre-built releases (self-contained, no .NET required) are published on the [Releases](../../releases) page as GitHub tags `v*`:
+
+| Platform | Asset |
+|----------|-------|
+| Linux (x64) | `herai-extractinject-unity-linux-x64.tar.gz` |
+| Windows (x64) | `herai-extractinject-unity-win-x64.zip` |
+
+```bash
+# Linux
+tar -xzf herai-extractinject-unity-linux-x64.tar.gz
+./herai-extractinject-unity --help
+
+# Windows (PowerShell)
+Expand-Archive herai-extractinject-unity-win-x64.zip -DestinationPath herai-extractinject-unity
+.\herai-extractinject-unity.exe --help
+```
+
+Release notes are generated automatically from the commits between tags.
+
+---
+
 ## Requirements
 
 - .NET 8 SDK or newer runtime (`RollForward` is enabled)

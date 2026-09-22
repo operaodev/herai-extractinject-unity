@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+            suffix: tar.gz
+          - rid: win-x64
+            os: windows-latest
+            suffix: zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish (${{ matrix.rid }})
+        run: >
+          dotnet publish -c Release -r ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishSingleFile=true
+          -o out/
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          tar -czf "herai-extractinject-unity-linux-x64.tar.gz" -C out .
+          ls -lh herai-extractinject-unity-linux-x64.tar.gz
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path out/* -DestinationPath herai-extractinject-unity-win-x64.zip
+          ls -lh herai-extractinject-unity-win-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.rid }}
+          path: herai-extractinject-unity-*.${{ matrix.suffix }}
+          if-no-files-found: error
+
+  release:
+    name: Create release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate release notes
+        id: notes
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || true)
+          if [ -n "$PREV" ]; then
+            LOG=$(git log --pretty=format:'%s' "$PREV..HEAD")
+          else
+            LOG=$(git log --pretty=format:'%s')
+          fi
+          NOTES=""
+          if [ -n "$GEMINI_API_KEY" ] && [ -n "$LOG" ]; then
+            jq -n --arg log "$LOG" '{contents:[{parts:[{text:(
+              "Write concise GitHub release notes in English grouped under " +
+              "**New Features**, **Changes**, **Fixes**, and **Other**, from these " +
+              "conventional-commit messages. Note: binaries bundled for Linux (x64) " +
+              "and Windows (x64). No markdown code fences.\n\n" + $log)}]}]}' > body.json
+            RESP=$(curl -s -X POST \
+              "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=$GEMINI_API_KEY" \
+              -H 'Content-Type: application/json' -d @body.json)
+            NOTES=$(printf '%s' "$RESP" | jq -r '.candidates[0].content.parts[0].text // empty')
+          fi
+          if [ -z "$NOTES" ]; then
+            NOTES=$(gh release generate-notes "$GITHUB_REF_NAME")
+          fi
+          printf '%s' "$NOTES" > RELEASE_NOTES.md
+          echo "body_file=$PWD/RELEASE_NOTES.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ steps.notes.outputs.body_file }}
+          files: artifacts/*
+          draft: false
+          generate_release_notes: false
