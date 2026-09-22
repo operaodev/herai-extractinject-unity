@@ -1,7 +1,3 @@
-using AssetsTools.NET;
-using AssetsTools.NET.Extra;
-using AssetsTools.NET.Cpp2IL;
-
 var baseDir = AppDomain.CurrentDomain.BaseDirectory;
 var classdataPath = Path.Combine(baseDir, "classdata.tpk");
 if (!File.Exists(classdataPath) && File.Exists("classdata.tpk"))
@@ -46,21 +42,28 @@ catch (Exception ex)
 
 static async Task HandleExtract(string[] args, string classdataPath)
 {
-    string? jsonOutputPath = null;
+    string? outputPath = null;
+    string outputFormat = "json";
     var inputPaths = new List<string>();
 
     for (int i = 0; i < args.Length; i++)
     {
         if (args[i] == "--json" || args[i] == "-j")
         {
-            if (i + 1 < args.Length)
+            outputFormat = "json";
+            if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
             {
-                jsonOutputPath = args[i + 1];
+                outputPath = args[i + 1];
                 i++;
             }
-            else
+        }
+        else if (args[i] == "--csv" || args[i] == "-c")
+        {
+            outputFormat = "csv";
+            if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
             {
-                throw new ArgumentException("Missing path after --json flag");
+                outputPath = args[i + 1];
+                i++;
             }
         }
         else
@@ -69,11 +72,22 @@ static async Task HandleExtract(string[] args, string classdataPath)
         }
     }
 
-    // Positional compatibility: extract <output.json> <path...>
-    if (jsonOutputPath == null && inputPaths.Count >= 2 && inputPaths[0].EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+    // Positional compatibility: extract <output.file> <path...>
+    if (outputPath == null && inputPaths.Count >= 2)
     {
-        jsonOutputPath = inputPaths[0];
-        inputPaths.RemoveAt(0);
+        var first = inputPaths[0];
+        if (first.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+        {
+            outputPath = first;
+            outputFormat = "json";
+            inputPaths.RemoveAt(0);
+        }
+        else if (first.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+        {
+            outputPath = first;
+            outputFormat = "csv";
+            inputPaths.RemoveAt(0);
+        }
     }
 
     if (inputPaths.Count == 0)
@@ -91,36 +105,48 @@ static async Task HandleExtract(string[] args, string classdataPath)
     var initializer = await UnityToolsInitializer.GetOrCreateAsync(classdataPath, managedPath);
     var manager = initializer.Manager;
 
-    var files = Extractor.ExtractAssets(filePaths, manager);
+    var entries = Extractor.ExtractAssets(filePaths, manager);
 
-    if (!string.IsNullOrEmpty(jsonOutputPath))
+    if (!string.IsNullOrEmpty(outputPath))
     {
-        Extractor.SaveJson(jsonOutputPath, files);
+        if (outputFormat == "csv")
+            Extractor.SaveCsv(outputPath, entries);
+        else
+            Extractor.SaveJson(outputPath, entries);
     }
     else
     {
-        var json = Extractor.ToJsonString(files);
-        Console.Out.WriteLine(json);
+        if (outputFormat == "csv")
+            Console.Out.Write(Extractor.ToCsvString(entries));
+        else
+            Console.Out.Write(Extractor.ToJsonString(entries));
     }
 }
 
 static async Task HandleInject(string[] args, string classdataPath)
 {
-    string? jsonFilePath = null;
+    string? inputFilePath = null;
+    string inputFormat = "json";
     var targetPaths = new List<string>();
 
     for (int i = 0; i < args.Length; i++)
     {
         if (args[i] == "--json" || args[i] == "-j")
         {
-            if (i + 1 < args.Length)
+            inputFormat = "json";
+            if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
             {
-                jsonFilePath = args[i + 1];
+                inputFilePath = args[i + 1];
                 i++;
             }
-            else
+        }
+        else if (args[i] == "--csv" || args[i] == "-c")
+        {
+            inputFormat = "csv";
+            if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
             {
-                throw new ArgumentException("Missing path after --json flag");
+                inputFilePath = args[i + 1];
+                i++;
             }
         }
         else
@@ -129,20 +155,24 @@ static async Task HandleInject(string[] args, string classdataPath)
         }
     }
 
-    List<FileText> files;
+    List<TextEntry> entries;
 
-    if (!string.IsNullOrEmpty(jsonFilePath))
+    if (!string.IsNullOrEmpty(inputFilePath))
     {
-        if (!File.Exists(jsonFilePath))
+        if (!File.Exists(inputFilePath))
         {
-            throw new FileNotFoundException($"JSON file not found: {jsonFilePath}");
+            throw new FileNotFoundException($"Input file not found: {inputFilePath}");
         }
-        files = Injector.LoadJson(jsonFilePath);
+        entries = inputFormat == "csv"
+            ? Injector.LoadCsv(inputFilePath)
+            : Injector.LoadJson(inputFilePath);
     }
     else if (Console.IsInputRedirected)
     {
-        var json = await Console.In.ReadToEndAsync();
-        files = Injector.ParseJson(json);
+        var input = await Console.In.ReadToEndAsync();
+        entries = inputFormat == "csv"
+            ? Injector.ParseCsv(input)
+            : Injector.ParseJson(input);
     }
     else if (targetPaths.Count >= 2)
     {
@@ -151,20 +181,23 @@ static async Task HandleInject(string[] args, string classdataPath)
 
         if (firstArg.TrimStart().StartsWith('[') || firstArg.TrimStart().StartsWith('{'))
         {
-            files = Injector.ParseJson(firstArg);
+            entries = Injector.ParseJson(firstArg);
         }
         else if (File.Exists(firstArg))
         {
-            files = Injector.LoadJson(firstArg);
+            if (firstArg.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                entries = Injector.LoadCsv(firstArg);
+            else
+                entries = Injector.LoadJson(firstArg);
         }
         else
         {
-            files = Injector.ParseJson(firstArg);
+            entries = Injector.ParseJson(firstArg);
         }
     }
     else
     {
-        throw new ArgumentException("Usage: herai-unity inject [--json <file.json> | <json_string> | stdin] <gameDir/assetsFile>");
+        throw new ArgumentException("Usage: herai-unity inject [--json|--csv [<file>]] <gameDir/assetsFile>");
     }
 
     if (targetPaths.Count == 0)
@@ -182,7 +215,7 @@ static async Task HandleInject(string[] args, string classdataPath)
     var initializer = await UnityToolsInitializer.GetOrCreateAsync(classdataPath, managedPath);
     var manager = initializer.Manager;
 
-    Injector.InjectAll(filePaths, files, manager);
+    Injector.InjectAll(filePaths, entries, manager);
 }
 
 static void PrintHelp()
@@ -190,16 +223,21 @@ static void PrintHelp()
     Console.Error.WriteLine("Herai Unity (Extractor / Injector)");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Usage:");
-    Console.Error.WriteLine("  herai-unity extract <gameDir/assets...> [--json <output.json>]");
-    Console.Error.WriteLine("  herai-unity inject  <gameDir/assets...>               (reads JSON from stdin)");
-    Console.Error.WriteLine("  herai-unity inject  <json_string> <gameDir/assets...>");
-    Console.Error.WriteLine("  herai-unity inject  --json <input.json> <gameDir/assets...>");
+    Console.Error.WriteLine("  herai-unity extract <gameDir/assets...> [--json|--csv [<output>]]");
+    Console.Error.WriteLine("  herai-unity inject  <gameDir/assets...>                (reads from stdin)");
+    Console.Error.WriteLine("  herai-unity inject  <input> <gameDir/assets...>");
+    Console.Error.WriteLine("  herai-unity inject  --json|--csv <input> <gameDir/assets...>");
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("Options:");
+    Console.Error.WriteLine("  --json, -j    Output/input format JSON (default)");
+    Console.Error.WriteLine("  --csv, -c     Output/input format CSV");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Examples:");
     Console.Error.WriteLine("  herai-unity extract \"/path/to/game\" > text.json");
-    Console.Error.WriteLine("  herai-unity extract \"/path/to/game\" --json text.json");
+    Console.Error.WriteLine("  herai-unity extract \"/path/to/game\" --json output.json");
+    Console.Error.WriteLine("  herai-unity extract \"/path/to/game\" --csv output.csv");
     Console.Error.WriteLine("  cat text.json | herai-unity inject \"/path/to/game\"");
-    Console.Error.WriteLine("  herai-unity inject  --json translated.json \"/path/to/game\"");
+    Console.Error.WriteLine("  herai-unity inject --csv translated.csv \"/path/to/game\"");
 }
 
 static IEnumerable<string> ExpandPaths(IEnumerable<string> inputPaths)

@@ -1,8 +1,3 @@
-using AssetsTools.NET;
-using AssetsTools.NET.Extra;
-using System.Text;
-using System.Text.Json;
-
 public static class Injector
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -12,69 +7,159 @@ public static class Injector
         PropertyNameCaseInsensitive = true
     };
 
-    public static List<FileText> ParseJson(string json)
+    public static List<TextEntry> ParseJson(string json)
     {
-        return JsonSerializer.Deserialize<List<FileText>>(json, JsonOptions) ?? [];
+        return JsonSerializer.Deserialize<List<TextEntry>>(json, JsonOptions) ?? [];
     }
 
-    public static List<FileText> LoadJson(string inputPath)
+    public static List<TextEntry> LoadJson(string inputPath)
     {
         var json = File.ReadAllText(inputPath, Encoding.UTF8);
         return ParseJson(json);
     }
 
-    public static int InjectAll(string[] filePaths, List<FileText> files, AssetsManager manager)
+    public static List<TextEntry> ParseCsv(string csv)
     {
-        // Pre-group entries by target file name
-        // (fileName -> (PathId -> List<(fieldPath, content, fullKey)>))
-        var fileGrouped = new Dictionary<string, Dictionary<long, List<(string fieldPath, string content, string key)>>>(StringComparer.OrdinalIgnoreCase);
-        var wildcardMap = new Dictionary<long, List<(string fieldPath, string content, string key)>>();
+        var entries = new List<TextEntry>();
+        using var reader = new StringReader(csv);
+        string? line;
+        bool first = true;
 
-        foreach (var file in files)
+        while ((line = reader.ReadLine()) != null)
         {
-            foreach (var tf in file.TextFields)
+            if (first)
             {
-                if (string.IsNullOrEmpty(tf.Id)) continue;
+                first = false;
+                if (line.StartsWith("assetname"))
+                    continue;
+            }
 
-                string targetFile = "";
-                string idBody = tf.Id;
+            var fields = ParseCsvLine(line);
+            if (fields.Count < 5) continue;
 
-                if (tf.Id.Contains('#'))
+            entries.Add(new()
+            {
+                AssetName = fields[0],
+                AssetClass = fields[1],
+                Id = fields[2],
+                Field = fields[3],
+                Content = fields[4]
+            });
+        }
+        return entries;
+    }
+
+    public static List<TextEntry> LoadCsv(string inputPath)
+    {
+        var csv = File.ReadAllText(inputPath, Encoding.UTF8);
+        return ParseCsv(csv);
+    }
+
+    private static List<string> ParseCsvLine(string line)
+    {
+        var fields = new List<string>();
+        int i = 0;
+        while (i <= line.Length)
+        {
+            if (i == line.Length)
+            {
+                fields.Add("");
+                break;
+            }
+
+            if (line[i] == '"')
+            {
+                i++;
+                var sb = new StringBuilder();
+                while (i < line.Length)
                 {
-                    var split = tf.Id.Split('#', 2);
-                    targetFile = split[0];
-                    idBody = split[1];
+                    if (line[i] == '"')
+                    {
+                        if (i + 1 < line.Length && line[i + 1] == '"')
+                        {
+                            sb.Append('"');
+                            i += 2;
+                        }
+                        else
+                        {
+                            i++;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        sb.Append(line[i]);
+                        i++;
+                    }
                 }
-
-                var parts = idBody.Split('_', 3);
-                if (parts.Length < 3) continue;
-                if (!long.TryParse(parts[1], out var pathId)) continue;
-
-                var fieldPath = parts[2];
-
-                if (!string.IsNullOrEmpty(targetFile))
+                fields.Add(sb.ToString());
+                if (i < line.Length && line[i] == ',') i++;
+            }
+            else
+            {
+                var nextComma = line.IndexOf(',', i);
+                if (nextComma == -1)
                 {
-                    if (!fileGrouped.TryGetValue(targetFile, out var targetMap))
-                    {
-                        targetMap = [];
-                        fileGrouped[targetFile] = targetMap;
-                    }
-                    if (!targetMap.TryGetValue(pathId, out var list))
-                    {
-                        list = [];
-                        targetMap[pathId] = list;
-                    }
-                    list.Add((fieldPath, tf.Content, tf.Id));
+                    fields.Add(line[i..]);
+                    break;
                 }
                 else
                 {
-                    if (!wildcardMap.TryGetValue(pathId, out var list))
-                    {
-                        list = [];
-                        wildcardMap[pathId] = list;
-                    }
-                    list.Add((fieldPath, tf.Content, tf.Id));
+                    fields.Add(line[i..nextComma]);
+                    i = nextComma + 1;
                 }
+            }
+        }
+        return fields;
+    }
+
+    public static int InjectAll(string[] filePaths, List<TextEntry> entries, AssetsManager manager)
+    {
+        var fileGrouped = new Dictionary<string, Dictionary<long, List<(string fieldPath, string content, string key)>>>(StringComparer.OrdinalIgnoreCase);
+        var wildcardMap = new Dictionary<long, List<(string fieldPath, string content, string key)>>();
+
+        foreach (var entry in entries)
+        {
+            if (string.IsNullOrEmpty(entry.Id)) continue;
+
+            string targetFile = "";
+            string idBody = entry.Id;
+
+            if (entry.Id.Contains('#'))
+            {
+                var split = entry.Id.Split('#', 2);
+                targetFile = split[0];
+                idBody = split[1];
+            }
+
+            var parts = idBody.Split('_', 3);
+            if (parts.Length < 3) continue;
+            if (!long.TryParse(parts[1], out var pathId)) continue;
+
+            var fieldPath = parts[2];
+
+            if (!string.IsNullOrEmpty(targetFile))
+            {
+                if (!fileGrouped.TryGetValue(targetFile, out var targetMap))
+                {
+                    targetMap = [];
+                    fileGrouped[targetFile] = targetMap;
+                }
+                if (!targetMap.TryGetValue(pathId, out var list))
+                {
+                    list = [];
+                    targetMap[pathId] = list;
+                }
+                list.Add((fieldPath, entry.Content, entry.Id));
+            }
+            else
+            {
+                if (!wildcardMap.TryGetValue(pathId, out var list))
+                {
+                    list = [];
+                    wildcardMap[pathId] = list;
+                }
+                list.Add((fieldPath, entry.Content, entry.Id));
             }
         }
 
@@ -94,7 +179,6 @@ public static class Injector
                 }
             }
 
-            // If no specific file mapping, combine with wildcard entries
             if (map.Count == 0 && wildcardMap.Count > 0)
             {
                 map = wildcardMap;

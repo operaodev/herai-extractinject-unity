@@ -37,6 +37,7 @@ uabea-ubuntu.zip
 ## Local extraction / test dumps
 *.assets
 *.json
+*.csv
 !appsettings*.json
 
 ## OS generated

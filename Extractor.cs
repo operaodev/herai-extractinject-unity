@@ -1,5 +1,3 @@
-using AssetsTools.NET;
-using AssetsTools.NET.Extra;
 using System.Text;
 using System.Text.Json;
 
@@ -11,9 +9,9 @@ public static class Extractor
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    public static List<FileText> ExtractAssets(string[] filePaths, AssetsManager manager)
+    public static List<TextEntry> ExtractAssets(string[] filePaths, AssetsManager manager)
     {
-        var result = new List<FileText>();
+        var result = new List<TextEntry>();
 
         foreach (var filePath in filePaths)
         {
@@ -39,17 +37,11 @@ public static class Extractor
                     {
                         result.Add(new()
                         {
-                            Name = GetAssetName(baseField, source, info.PathId),
-                            Class = "TextAsset",
-                            TextFields =
-                            [
-                                new()
-                                {
-                                    Id = $"{source}#{info.TypeId}_{info.PathId}_m_Script",
-                                    Field = "m_Script",
-                                    Content = scriptField.AsString
-                                }
-                            ]
+                            AssetName = GetAssetName(baseField, source, info.PathId),
+                            AssetClass = "TextAsset",
+                            Id = $"{source}#{info.TypeId}_{info.PathId}_m_Script",
+                            Field = "m_Script",
+                            Content = scriptField.AsString
                         });
                     }
                 }
@@ -60,18 +52,8 @@ public static class Extractor
                     var baseField = manager.GetBaseField(afileInst, info);
                     if (baseField == null) continue;
 
-                    var fields = new List<TextField>();
-                    ExtractStrings(baseField, info, fields, source);
-
-                    if (fields.Count > 0)
-                    {
-                        result.Add(new()
-                        {
-                            Name = GetAssetName(baseField, source, info.PathId),
-                            Class = "MonoBehaviour",
-                            TextFields = fields
-                        });
-                    }
+                    var assetName = GetAssetName(baseField, source, info.PathId);
+                    ExtractStrings(baseField, info, result, source, assetName);
                 }
 
                 // GameObject
@@ -85,17 +67,11 @@ public static class Extractor
                     {
                         result.Add(new()
                         {
-                            Name = nameField.AsString,
-                            Class = "GameObject",
-                            TextFields =
-                            [
-                                new()
-                                {
-                                    Id = $"{source}#{info.TypeId}_{info.PathId}_m_Name",
-                                    Field = "m_Name",
-                                    Content = nameField.AsString
-                                }
-                            ]
+                            AssetName = nameField.AsString,
+                            AssetClass = "GameObject",
+                            Id = $"{source}#{info.TypeId}_{info.PathId}_m_Name",
+                            Field = "m_Name",
+                            Content = nameField.AsString
                         });
                     }
                 }
@@ -109,18 +85,8 @@ public static class Extractor
                         var baseField = manager.GetBaseField(afileInst, info);
                         if (baseField == null) continue;
 
-                        var fields = new List<TextField>();
-                        ExtractStrings(baseField, info, fields, source);
-
-                        if (fields.Count > 0)
-                        {
-                            result.Add(new()
-                            {
-                                Name = GetAssetName(baseField, source, info.PathId),
-                                Class = typeId.ToString(),
-                                TextFields = fields
-                            });
-                        }
+                        var assetName = GetAssetName(baseField, source, info.PathId);
+                        ExtractStrings(baseField, info, result, source, assetName);
                     }
                 }
             }
@@ -140,12 +106,12 @@ public static class Extractor
         return result;
     }
 
-    public static string ToJsonString(List<FileText> files)
+    public static string ToJsonString(List<TextEntry> entries)
     {
-        return JsonSerializer.Serialize(files, JsonOptions);
+        return JsonSerializer.Serialize(entries, JsonOptions);
     }
 
-    public static void SaveJson(string outputPath, List<FileText> files)
+    public static void SaveJson(string outputPath, List<TextEntry> entries)
     {
         var dir = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(dir))
@@ -153,19 +119,53 @@ public static class Extractor
             Directory.CreateDirectory(dir);
         }
 
-        var json = ToJsonString(files);
+        var json = ToJsonString(entries);
         File.WriteAllText(outputPath, json, Encoding.UTF8);
     }
 
-    private static void ExtractStrings(AssetTypeValueField field, AssetFileInfo info, List<TextField> fields, string source, string? prefix = null)
+    public static string ToCsvString(List<TextEntry> entries)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("assetname,assetclass,id,field,content");
+        foreach (var e in entries)
+        {
+            sb.AppendLine($"{EscapeCsv(e.AssetName)},{EscapeCsv(e.AssetClass)},{EscapeCsv(e.Id)},{EscapeCsv(e.Field)},{EscapeCsv(e.Content)}");
+        }
+        return sb.ToString();
+    }
+
+    public static void SaveCsv(string outputPath, List<TextEntry> entries)
+    {
+        var dir = Path.GetDirectoryName(outputPath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var csv = ToCsvString(entries);
+        File.WriteAllText(outputPath, csv, Encoding.UTF8);
+    }
+
+    private static string EscapeCsv(string value)
+    {
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+        {
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        }
+        return value;
+    }
+
+    private static void ExtractStrings(AssetTypeValueField field, AssetFileInfo info, List<TextEntry> result, string source, string assetName, string? prefix = null)
     {
         if (field == null || field.IsDummy) return;
 
         if (field.TemplateField?.Type == "string" && !string.IsNullOrEmpty(field.AsString))
         {
             var fieldPath = prefix ?? "value";
-            fields.Add(new()
+            result.Add(new()
             {
+                AssetName = assetName,
+                AssetClass = info.TypeId.ToString(),
                 Id = $"{source}#{info.TypeId}_{info.PathId}_{fieldPath}",
                 Field = fieldPath,
                 Content = field.AsString
@@ -199,7 +199,7 @@ public static class Extractor
                     childPrefix = $"{prefix}.{child.FieldName}";
                 }
 
-                ExtractStrings(child, info, fields, source, childPrefix);
+                ExtractStrings(child, info, result, source, assetName, childPrefix);
             }
         }
     }
