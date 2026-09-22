@@ -2,10 +2,10 @@ using System.Text.Json.Serialization;
 
 public class TextEntry
 {
-    [JsonPropertyName("assetname")]
+    [JsonPropertyName("assetName")]
     public string AssetName { get; set; } = "";
 
-    [JsonPropertyName("assetclass")]
+    [JsonPropertyName("assetClass")]
     public string AssetClass { get; set; } = "";
 
     [JsonPropertyName("id")]

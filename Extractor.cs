@@ -1,3 +1,5 @@
+using AssetsTools.NET;
+using AssetsTools.NET.Extra;
 using System.Text;
 using System.Text.Json;
 

@@ -1,3 +1,7 @@
+using AssetsTools.NET;
+using AssetsTools.NET.Extra;
+using AssetsTools.NET.Cpp2IL;
+
 var baseDir = AppDomain.CurrentDomain.BaseDirectory;
 var classdataPath = Path.Combine(baseDir, "classdata.tpk");
 if (!File.Exists(classdataPath) && File.Exists("classdata.tpk"))
