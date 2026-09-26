@@ -6,18 +6,6 @@ It scans Unity `TextAsset`, `MonoBehaviour`, `GameObject`, `Font`, `Localization
 
 ---
 
-## Features
-
-- Extracts game text from serialized Unity assets (`*.assets`) and asset bundles (`*.unity3d` / UnityFS bundles)
-- Scans directories recursively; auto-detects bundle vs serialized files by header
-- Works with both **Mono** (managed DLLs) and **IL2CPP** games for `MonoBehaviour` field resolution
-- Flat output model: `assetname, assetclass, id, field, content`
-- Outputs **JSON** or **CSV**; writes to a file or prints to stdout
-- Heuristic content filter (on by default) that discards technical strings: GUIDs, versions, font metadata, Unity reserved keywords, internal identifiers (localization keys, animation names), binary blobs, etc.
-- Re-injects translated text back into the original files, including inside asset bundles
-
----
-
 ## Download
 
 Pre-built releases (self-contained, no .NET required) are published on the [Releases](../../releases) page as GitHub tags `v*`:
@@ -82,12 +70,6 @@ herai-extractinject-unity extract "/path/to/game" --csv text.csv
 
 # Positional output file also works
 herai-extractinject-unity extract "/path/to/game" text.json
-
-# Raw extraction without filtering
-herai-extractinject-unity extract "/path/to/game" --all --json all-strings.json
-
-# Filter with a higher minimum length
-herai-extractinject-unity extract "/path/to/game" --min-length 4 --csv text.csv
 ```
 
 ### Inject
@@ -116,9 +98,6 @@ herai-extractinject-unity inject --json translated.json "/path/to/game"
 |------|---------|
 | `--json`, `-j` | Output/input format is JSON (default). If followed by a non-flag path, writes/reads that file. |
 | `--csv`, `-c` | Output/input format is CSV. Same rule for the following path. |
-| `--filter`, `-f` | Enable the content filter (default: on). |
-| `--all`, `-a` | Disable the filter and keep every raw string (extract only). |
-| `--min-length N` | Minimum string length to keep after filtering (extract only, default `2`). |
 
 ---
 
@@ -170,18 +149,9 @@ level0#140,114,level0#114_140_m_text,m_text,Who knows what they will come up wit
 
 ---
 
-## Filtering
+## Extraction
 
-By default the extractor removes strings that are almost certainly **not** game-facing text:
-
-- GUIDs, UUIDs, hex values, colors, version numbers
-- Font names and TextMesh Pro font metadata
-- Unity/UI component settings (`m_AnimationTriggers`, `m_HorizontalAxis`, `m_OnClick`, ...)
-- Internal identifiers: localization keys, animation/timeline names, `m_*` fields, `k__BackingField`
-- File paths, URLs, Unity reserved words (`MonoBehaviour`, `UnityEngine`, ...)
-- Binary data (e.g. serialized MIDI) and control characters
-
-Use `--all` if you need the unfiltered dump, or `--min-length N` to tighten/loosen the length threshold.
+Every string found in the supported assets is extracted as-is, with no filtering: field names, GUIDs, metadata, dialogue and everything else is kept so nothing is lost. Filter the results afterwards with a separate tool if needed.
 
 ---
 

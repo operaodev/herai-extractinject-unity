@@ -48,8 +48,6 @@ static async Task HandleExtract(string[] args, string classdataPath)
 {
     string? outputPath = null;
     string outputFormat = "json";
-    bool filterEnabled = true;
-    int minLength = 2;
     var inputPaths = new List<string>();
 
     for (int i = 0; i < args.Length; i++)
@@ -70,26 +68,6 @@ static async Task HandleExtract(string[] args, string classdataPath)
             {
                 outputPath = args[i + 1];
                 i++;
-            }
-        }
-        else if (args[i] == "--filter" || args[i] == "-f")
-        {
-            filterEnabled = true;
-        }
-        else if (args[i] == "--all" || args[i] == "-a")
-        {
-            filterEnabled = false;
-        }
-        else if (args[i] == "--min-length")
-        {
-            if (i + 1 < args.Length && int.TryParse(args[i + 1], out var n))
-            {
-                minLength = n;
-                i++;
-            }
-            else
-            {
-                throw new ArgumentException("Missing value after --min-length flag");
             }
         }
         else
@@ -134,12 +112,7 @@ static async Task HandleExtract(string[] args, string classdataPath)
     var manager = initializer.Manager;
 
     var entries = Extractor.ExtractAssets(filePaths, manager);
-    var rawCount = entries.Count;
-    if (filterEnabled)
-    {
-        entries = Extractor.ApplyFilter(entries, minLength);
-    }
-    Console.Error.WriteLine($"[Extractor] {rawCount} raw strings extracted, {entries.Count} kept after filter.");
+    Console.Error.WriteLine($"[Extractor] {entries.Count} strings extracted.");
 
     if (!string.IsNullOrEmpty(outputPath))
     {
@@ -265,15 +238,12 @@ static void PrintHelp()
     Console.Error.WriteLine("Options:");
     Console.Error.WriteLine("  --json, -j           Output/input format JSON (default)");
     Console.Error.WriteLine("  --csv, -c            Output/input format CSV");
-    Console.Error.WriteLine("  --filter, -f         Filter out technical strings (default: on)");
-    Console.Error.WriteLine("  --all, -a            Disable filtering (keep every raw string)");
-    Console.Error.WriteLine("  --min-length N       Minimum string length to keep (extract only; default 2)");
     Console.Error.WriteLine();
     Console.Error.WriteLine("Examples:");
     Console.Error.WriteLine("  herai-extractinject-unity extract \"/path/to/game\" > text.json");
     Console.Error.WriteLine("  herai-extractinject-unity extract \"/path/to/game\" --json output.json");
     Console.Error.WriteLine("  herai-extractinject-unity extract \"/path/to/game\" --csv output.csv");
-    Console.Error.WriteLine("  herai-extractinject-unity extract \"/path/to/game\" --min-length 4 --csv output.csv");
+    Console.Error.WriteLine("  herai-extractinject-unity extract \"/path/to/game\" \"output.json\"");
     Console.Error.WriteLine("  cat text.json | herai-extractinject-unity inject \"/path/to/game\"");
     Console.Error.WriteLine("  herai-extractinject-unity inject --csv translated.csv \"/path/to/game\"");
 }

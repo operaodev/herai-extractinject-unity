@@ -58,7 +58,9 @@ public static class Extractor
 
             var head = buf[..read];
             if (head[0] == 1 && head[1] == 0 && head[2] == 0 && head[3] == 0) return true;
-            return head.StartsWith("Unity"u8) || head.StartsWith("Raw"u8);
+            if (head.StartsWith("Unity"u8) || head.StartsWith("Raw"u8)) return true;
+
+            return AssetsFile.IsAssetsFile(filePath);
         }
         catch
         {
@@ -186,11 +188,6 @@ public static class Extractor
                 ExtractStrings(baseField, info, result, source, assetName);
             }
         }
-    }
-
-    public static List<TextEntry> ApplyFilter(List<TextEntry> entries, int minLength)
-    {
-        return entries.Where(e => TextFilter.IsRelevant(e, minLength)).ToList();
     }
 
     public static string ToJsonString(List<TextEntry> entries)
